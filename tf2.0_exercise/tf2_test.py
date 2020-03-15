@@ -21,8 +21,8 @@ if __name__ == '__main__':
 
     model.summary()  # 显示模型结构
 
-    model.compile(optimizer='adam',  # 优化方法
-                  loss='mse',  # 损失函数
+    model.compile(optimizer='adam',  # 优化方法 'adam'：梯度下降
+                  loss='mse',  # 损失函数 'mse'：均方误差
                   )
     history = model.fit(x, y, epochs=200)  # 模型训练
 
