@@ -79,9 +79,10 @@ if __name__ == '__main__':
     test_label_one_hot = tf.keras.utils.to_categorical(test_label)
 
     # Sequential生成的模型
-    model = softmax_model(True)
+    # model = softmax_model(True)
     # 函数式API生成的模型
-    model = function_api_model(,True)
+    input_data = tf.keras.Input(shape=(28, 28))
+    model = function_api_model(input_data, True)
 
     his = model.fit(train_image, train_label_one_hot, epochs=5,
                     validation_data=(test_image, test_label_one_hot))  # 在测试集上验证
