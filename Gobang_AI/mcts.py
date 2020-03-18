@@ -3,6 +3,8 @@
 import numpy as np
 import math
 import copy
+import time
+from Gobang_AI.gobang_game import print_chessboard
 
 
 class MCTSTreeNode:
@@ -78,45 +80,51 @@ class MCTSTreeNode:
 
 class MCTS:
     def __init__(self, chessboard_height=5, chessboard_width=5,
-                 chessboard_history_num=4, _c=5):
+                 chessboard_history_num=4, simulation_num=300,
+                 _c=5, if_print_sim_once=False):
         self.chessboard_height = chessboard_height
         self.chessboard_width = chessboard_width
         self.chessboard_history_num = chessboard_history_num
-        self.chessboard = np.zeros(shape=(chessboard_height, chessboard_width), dtype=float)  # 0为没有，1为P1，2为P2
-        self.chessboard = self.chessboard.tolist()
         self.root_node = MCTSTreeNode(None, (-1, -1), 1)
-        self.chessboard_list = [(np.zeros(shape=(chessboard_height, chessboard_width), dtype=float)).tolist()]
+        self.init_chessboard = np.zeros(shape=(chessboard_height, chessboard_width), dtype=float)  # 0为没有，1为P1，2为P2
+        self.init_chessboard = self.init_chessboard.tolist()
 
         self._c = _c
+        self.simulation_num = simulation_num
 
-    def renew_chessboard_list(self, chessboard):
+        self.if_print_sim_once = if_print_sim_once
+
+    def renew_chessboard_list(self, chessboard_list, chessboard):
         """
         用这次记录的棋盘动态更新棋盘列表
+        :param chessboard_list: 待更新的棋盘列表
         :param chessboard: 这次棋盘
         :return:棋盘列表 (内部已经更新self.chessboard_list)
         """
-        self.chessboard_list.append(copy.deepcopy(chessboard))
-        diff_value = self.chessboard_history_num - len(self.chessboard_list)
+        chessboard_list.append(copy.deepcopy(chessboard))
+        diff_value = self.chessboard_history_num - len(chessboard_list)
         if diff_value > 0:
             # 填充空历史棋盘
             for _ in range(diff_value):
                 empty_list = np.zeros(shape=(self.chessboard_height,
                                              self.chessboard_width),
                                       dtype=float).tolist()
-                self.chessboard_list.insert(0, empty_list)
+                chessboard_list.insert(0, empty_list)
         elif diff_value < 0:
-            self.chessboard_list = self.chessboard_list[-diff_value:]
-        return self.chessboard_list
+            chessboard_list = chessboard_list[-diff_value:]
+        return chessboard_list
 
-    def do_action(self, action, player):
+    @staticmethod
+    def do_action(chessboard, action, player):
         """
         执行玩家player落子action，更新self.chessboard
+        :param chessboard: 执行落子的棋盘
         :param action: 落子
         :param player: 玩家
         :return: self.chessboard
         """
-        self.chessboard[action[0]][action[1]] = player
-        return self.chessboard
+        chessboard[action[0]][action[1]] = player
+        return chessboard
 
     @staticmethod
     def reverse_player(player):
@@ -142,24 +150,45 @@ class MCTS:
 
         return action_prob
 
-    def simulation_once(self):
+    def simulation_once(self, chessboard_list, init_player):
+        """
+        从self.root开始进行一次MCTS的模拟
+        :param chessboard_list: 待模拟的棋盘列表
+        :param init_player: 初始玩家
+        :return: 无
+        """
         count_buff = 0
 
         node = self.root_node
-        init_player = 1
         player = init_player  # 初始玩家为P1
+        chessboard = copy.deepcopy(chessboard_list[-1])
 
-        self.renew_chessboard_list(self.chessboard)
-        first_action_prob = self.get_action_prob(self.chessboard_list)
-        # 初次拓展
-        self.root_node.expand(first_action_prob)
+        if len(chessboard_list) < self.chessboard_history_num:
+            diff_value = self.chessboard_history_num - len(chessboard_list)
+            # 填充空历史棋盘
+            for _ in range(diff_value):
+                empty_list = np.zeros(shape=(self.chessboard_height,
+                                             self.chessboard_width),
+                                      dtype=float).tolist()
+                chessboard_list.insert(0, empty_list)
+
+        if 0 == len(node.children):
+            # 初次拓展
+            first_action_prob = self.get_action_prob(chessboard_list)
+            self.root_node.expand(first_action_prob)
+
         while True:
             # select
             node = node.select(self._c)
 
-            self.do_action(node.action, player)  # 更新chessboard
-            self.renew_chessboard_list(self.chessboard)  # 更新chessboard_list
+            MCTS.do_action(chessboard, node.action, player)  # 更新chessboard
+            self.renew_chessboard_list(chessboard_list, chessboard)  # 更新chessboard_list
             player = MCTS.reverse_player(player)  # 改变player
+
+            # 绘制新模拟棋盘
+            if self.if_print_sim_once:
+                print_chessboard(chessboard)
+                time.sleep(0.5)
 
             # 检测胜负
             count_buff += 1
@@ -175,8 +204,36 @@ class MCTS:
                 break
             else:
                 # expand
-                first_action_prob = self.get_action_prob(self.chessboard_list)
+                first_action_prob = self.get_action_prob(chessboard_list)
                 node.expand(first_action_prob)
+
+    def get_root_node_action_prob(self, chessboard, sim_player, temp=1e-3):
+        """
+        MCTS模拟self.simulation_num次，最终获得下一步决策的动作列表和概率列表
+        :param chessboard:待MCTS的棋盘
+        :param sim_player:模拟玩家
+        :param temp:(0, 1]的温度值
+        :return:action_list, probs的动作列表和概率列表
+        """
+        for i in range(self.simulation_num):
+            print(str(i / self.simulation_num * 100) + "%已完成")
+            sim_chessboard = copy.deepcopy(chessboard)
+            self.simulation_once(sim_chessboard, sim_player)
+
+        # 提取所有action及visits值
+        action_list = []
+        visits_list = []
+        for child in self.root_node.children:
+            action_list.append(child.action)
+            visits_list.append(child._n)
+
+        buff = 1.0 / temp * np.log(np.array(visits_list) + 1e-10)
+        probs = np.exp(buff - np.max(buff))
+        probs /= np.sum(probs)
+
+        return action_list, probs
+
+
 
 
 
