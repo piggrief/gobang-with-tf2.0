@@ -1,10 +1,11 @@
-#!/usr/bin/env python 
+#!/usr/bin/env python
 # -*- coding:utf-8 -*-
 import numpy as np
 import math
 import copy
 import time
 from Gobang_AI.gobang_game import print_chessboard
+from Gobang_AI.model import PolicyValueNet
 
 
 class MCTSTreeNode:
@@ -94,12 +95,15 @@ class MCTS:
 
         self.if_print_sim_once = if_print_sim_once
 
+        self.vp_net = PolicyValueNet(chessboard_height, chessboard_width, chessboard_history_num)
+        self.vp_net.model = self.vp_net.cnn_net()
+
     def renew_chessboard_list(self, chessboard_list, chessboard):
         """
         用这次记录的棋盘动态更新棋盘列表
         :param chessboard_list: 待更新的棋盘列表
         :param chessboard: 这次棋盘
-        :return:棋盘列表 (内部已经更新self.chessboard_list)
+        :return:棋盘列表 (内部已经更新self.chessboard_list) n*h*w
         """
         chessboard_list.append(copy.deepcopy(chessboard))
         diff_value = self.chessboard_history_num - len(chessboard_list)
@@ -136,11 +140,16 @@ class MCTS:
     def get_action_prob(self, chessboard_list):
         """
         输入棋盘列表（n个历史棋盘）并通过价值策略网络生成下一步落子概率数组（h*w）
-        :param chessboard_list: 棋盘列表（n个历史棋盘）
+        :param chessboard_list: 棋盘列表（n个历史棋盘） n*h*w
         :return: 下一步落子概率数组（h*w）
         """
         # 策略价值网络预测
-        action_prob = np.random.random((self.chessboard_height, self.chessboard_width))
+        input_data = np.array(chessboard_list)
+        input_data = np.expand_dims(input_data, axis=0)
+        action_prob, value = self.vp_net.get_action_probs(input_data)
+        action_prob = action_prob.reshape(self.chessboard_height, self.chessboard_width)
+        # action_prob = np.random.random((self.chessboard_height, self.chessboard_width))
+        # action_prob = np.squeeze(action_prob, axis=0)
         # 将不符要求的点的概率设置为-1
         action_prob = action_prob.tolist()
         for i in range(len(action_prob)):
@@ -182,7 +191,7 @@ class MCTS:
             node = node.select(self._c)
 
             MCTS.do_action(chessboard, node.action, player)  # 更新chessboard
-            self.renew_chessboard_list(chessboard_list, chessboard)  # 更新chessboard_list
+            chessboard_list = self.renew_chessboard_list(chessboard_list, chessboard)  # 更新chessboard_list
             player = MCTS.reverse_player(player)  # 改变player
 
             # 绘制新模拟棋盘
